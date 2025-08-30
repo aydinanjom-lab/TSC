@@ -3,16 +3,15 @@ import React, { useState, useCallback } from "react";
 import { User } from "@/api/entities";
 import { UserProfile } from "@/api/entities";
 import { ScanResult } from "@/api/entities";
-import { GhostFollower } from "@/api/entities";
 import { UploadFile } from "@/api/integrations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { 
-  Upload as UploadIcon, 
-  FileUp, 
-  CheckCircle, 
+import {
+  Upload as UploadIcon,
+  FileUp,
+  CheckCircle,
   AlertTriangle,
   Clock,
   Crown
@@ -27,79 +26,17 @@ const PLAN_LIMITS = {
   pro: { scans: 4, followers: 50000 }
 };
 
-// Sample data generator for demo purposes
-const generateSampleGhostFollowers = (userProfileId, scanResultId, count = 150) => {
-  const sampleHandles = [
-    'ghost_user_1', 'inactive_bot', 'fake_account_99', 'spam_follower', 'bot_12345',
-    'ghost_profile', 'fake_engagement', 'inactive_user', 'spam_bot_77', 'ghost_account',
-    'dead_profile', 'fake_likes_bot', 'inactive_follow', 'spam_account', 'ghost_user_2',
-    'bot_follower_x', 'fake_user_123', 'inactive_ghost', 'spam_profile', 'ghost_bot'
-  ];
-  
-  const realHandles = [
-    'sarah_creates', 'mike_photographer', 'jenny_designs', 'alex_fitness', 'maria_travels',
-    'david_cooks', 'lisa_writes', 'john_codes', 'emma_paints', 'chris_music',
-    'anna_yoga', 'mark_business', 'sophie_fashion', 'ben_outdoors', 'kate_wellness'
-  ];
-
-  const followers = [];
-  const now = new Date();
-
-  // Generate ghost followers (70% of total)
-  const ghostCount = Math.floor(count * 0.7);
-  for (let i = 0; i < ghostCount; i++) {
-    const handle = sampleHandles[i % sampleHandles.length] + '_' + (Math.floor(i / sampleHandles.length) + 1);
-    const daysSinceFollow = Math.random() * 365 * 2; // Up to 2 years ago
-    const followerSince = new Date(now.getTime() - daysSinceFollow * 24 * 60 * 60 * 1000);
-    
-    let ghostScore = 0.75 + Math.random() * 0.25; // 0.75 to 1.0
-    
-    followers.push({
-      user_profile_id: userProfileId,
-      scan_result_id: scanResultId,
-      handle: handle,
-      full_name: `Fake User ${i + 1}`,
-      follower_since: followerSince.toISOString(),
-      is_verified: false,
-      is_private: Math.random() > 0.7,
-      total_likes: Math.floor(Math.random() * 3),
-      total_comments: Math.floor(Math.random() * 2),
-      last_seen_interaction_at: Math.random() > 0.8 ? 
-        new Date(now.getTime() - Math.random() * 180 * 24 * 60 * 60 * 1000).toISOString() : 
-        null,
-      ghost_score: ghostScore,
-      status: 'identified'
-    });
-  }
-
-  // Generate real followers (30% of total)
-  const realCount = count - ghostCount;
-  for (let i = 0; i < realCount; i++) {
-    const handle = realHandles[i % realHandles.length] + '_' + (Math.floor(i / realHandles.length) + 1);
-    const daysSinceFollow = Math.random() * 365 * 3; // Up to 3 years ago
-    const followerSince = new Date(now.getTime() - daysSinceFollow * 24 * 60 * 60 * 1000);
-    const recentInteraction = new Date(now.getTime() - Math.random() * 30 * 24 * 60 * 60 * 1000);
-    
-    let ghostScore = 0.1 + Math.random() * 0.4; // 0.1 to 0.5
-    
-    followers.push({
-      user_profile_id: userProfileId,
-      scan_result_id: scanResultId,
-      handle: handle,
-      full_name: `Real User ${i + 1}`,
-      follower_since: followerSince.toISOString(),
-      is_verified: Math.random() > 0.9,
-      is_private: Math.random() > 0.8,
-      total_likes: Math.floor(Math.random() * 50) + 5,
-      total_comments: Math.floor(Math.random() * 20) + 2,
-      last_seen_interaction_at: recentInteraction.toISOString(),
-      ghost_score: ghostScore,
-      status: 'identified'
-    });
-  }
-
-  return { followers, ghostCount };
-};
+// Helper function to call the processing endpoint
+async function startProcessUpload(scanId) {
+  const r = await fetch("/api/process-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scanId })
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "process-upload-failed");
+  return j;
+}
 
 export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
@@ -115,24 +52,24 @@ export default function UploadPage() {
     try {
       const currentUser = await User.me();
       const profiles = await UserProfile.filter({ created_by: currentUser.email });
-      
+
       if (!profiles || profiles.length === 0) {
         throw new Error("Please complete your profile setup first.");
       }
 
       const userProfile = profiles[0];
       setProfile(userProfile);
-      
+
       const currentPlan = userProfile.subscription_plan || 'free';
       const limits = PLAN_LIMITS[currentPlan];
-      
+
       // Check scan limit
       if (limits.scans > 0 && (userProfile.scans_this_month || 0) >= limits.scans) {
         setUpgradeType('scans');
         setShowUpgradeModal(true);
         return false;
       }
-      
+
       // For follower count, we'd need to parse the file first
       // For now, we'll do a rough estimate based on file size
       const estimatedFollowers = Math.floor(file.size / 100); // Rough estimate
@@ -141,67 +78,11 @@ export default function UploadPage() {
         setShowUpgradeModal(true);
         return false;
       }
-      
+
       return userProfile;
     } catch (error) {
       setError(error.message);
       return false;
-    }
-  }, []);
-
-  const processUploadedFile = useCallback(async (scanResult, fileUrl, userProfile, fileSize) => {
-    try {
-      // Update status to running
-      await ScanResult.update(scanResult.id, { 
-        status: "running",
-        started_at: new Date().toISOString() 
-      });
-
-      // Since the platform doesn't support ZIP extraction, we'll create sample data
-      // In a real implementation, this would parse the actual Instagram data
-      
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Generate sample followers based on file size (simulating real data)
-      const estimatedCount = Math.min(Math.floor(fileSize / 1000), 500); // Reasonable estimate
-      const { followers: ghostFollowersData, ghostCount } = generateSampleGhostFollowers(
-        userProfile.id, 
-        scanResult.id, 
-        estimatedCount
-      );
-
-      // Bulk create ghost followers
-      if (ghostFollowersData.length > 0) {
-        await GhostFollower.bulkCreate(ghostFollowersData);
-      }
-
-      // Update scan result with completion data
-      await ScanResult.update(scanResult.id, {
-        status: "complete",
-        finished_at: new Date().toISOString(),
-        total_followers: ghostFollowersData.length,
-        ghost_count: ghostCount
-      });
-
-      // Update user profile stats
-      await UserProfile.update(userProfile.id, {
-        total_followers: ghostFollowersData.length,
-        ghost_followers: ghostCount,
-        last_scan_date: new Date().toISOString()
-      });
-
-      return scanResult;
-
-    } catch (error) {
-      console.error("Processing error:", error);
-      await ScanResult.update(scanResult.id, {
-        status: "failed",
-        last_error: error.message || "Failed to process Instagram data"
-      });
-      // Do not re-throw here, as the caller (handleFile) doesn't await this
-      // and we want the UI to show success for the upload part.
-      // Error handling for processing will be visible on the Scan page.
     }
   }, []);
 
@@ -223,7 +104,7 @@ export default function UploadPage() {
     // Check plan limits
     const userProfile = await checkPlanLimits(file);
     if (!userProfile) {
-      return; // Limit exceeded or error occurred
+      return;
     }
 
     setIsUploading(true);
@@ -237,11 +118,10 @@ export default function UploadPage() {
 
       // Upload file
       const { file_url } = await UploadFile({ file });
-      
+
       clearInterval(progressInterval);
       setUploadProgress(90);
 
-      // Create ScanResult and get the new object with the ID
       const newScan = await ScanResult.create({
         user_profile_id: userProfile.id,
         status: "queued",
@@ -253,8 +133,15 @@ export default function UploadPage() {
 
       setUploadProgress(95);
 
-      // Pass the complete scan object to the processing function
-      processUploadedFile(newScan, file_url, userProfile, file.size);
+      // Start processing using the HTTP endpoint
+      try {
+        await startProcessUpload(newScan.id);
+        console.log('Processing started successfully');
+      } catch (apiError) {
+        console.error("Failed to start processing:", apiError);
+        // Show error but don't crash - user can still see scan details
+        setError(`Failed to start processing: ${apiError.message}. You can still view scan details and retry if needed.`);
+      }
 
       setUploadProgress(100);
 
@@ -263,7 +150,7 @@ export default function UploadPage() {
         scans_this_month: (userProfile.scans_this_month || 0) + 1
       });
 
-      // Set the result with the created scan, which now has a valid ID
+      // Set the result with the created scan - ALWAYS navigate to scan page
       setUploadResult(newScan);
 
     } catch (error) {
@@ -273,7 +160,7 @@ export default function UploadPage() {
       setIsUploading(false);
       setUploadProgress(0);
     }
-  }, [checkPlanLimits, processUploadedFile]);
+  }, [checkPlanLimits]);
 
   const handleDrag = useCallback((e) => {
     e.preventDefault();
@@ -289,7 +176,7 @@ export default function UploadPage() {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
     }
@@ -345,8 +232,8 @@ export default function UploadPage() {
                   View Scan Details
                 </Button>
               </Link>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setUploadResult(null)}
                 className="border-zinc-600"
               >
@@ -405,7 +292,7 @@ export default function UploadPage() {
                 </>
               )}
             </div>
-            
+
             <div className="mt-6 space-y-3 text-sm text-zinc-400">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400" />

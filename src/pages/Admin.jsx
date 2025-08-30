@@ -18,6 +18,20 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 
+// Helper function to call the processing endpoint
+// Note: This function is no longer called by retryFailedScan due to explicit implementation within it.
+// It is kept for historical context or if other parts of a larger application might use it.
+async function startProcessUpload(scanId) {
+  const r = await fetch("/api/process-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scanId })
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "process-upload-failed");
+  return j;
+}
+
 // This is a placeholder function for navigation. In a real application,
 // this would typically be imported from a routing library (e.g., Next.js useRouter, React Router history).
 const createPageUrl = (path) => `/${path}`;
@@ -82,6 +96,29 @@ export default function Admin() {
     }
   };
 
+  const retryFailedScan = async (scanId) => {
+    if (!confirm('Retry this failed scan?')) return;
+
+    try {
+      const r = await fetch("/api/process-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId })
+      });
+      const j = await r.json();
+
+      if (j.ok) {
+        alert('Scan retry initiated successfully');
+        loadAdminData(); // Refresh data
+      } else {
+        alert(`Failed to retry scan: ${j.error} (${j.step || 'unknown'})`);
+      }
+    } catch (error) {
+      console.error('Retry scan error:', error);
+      alert(`Error retrying scan: ${error.message}`);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -116,8 +153,8 @@ export default function Admin() {
   };
 
   const filteredUsers = allUsers.filter((user) =>
-  user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-  user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase())
+    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.full_name && user.full_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -223,9 +260,9 @@ export default function Admin() {
                     </div>
                     <div className="flex items-center gap-4">
                       <Badge className={
-                      userProfile?.subscription_plan === 'pro' ? 'bg-emerald-600' :
-                      userProfile?.subscription_plan === 'starter' ? 'bg-blue-600' :
-                      'bg-zinc-700'
+                        userProfile?.subscription_plan === 'pro' ? 'bg-emerald-600' :
+                          userProfile?.subscription_plan === 'starter' ? 'bg-blue-600' :
+                            'bg-zinc-700'
                       }>
                         <Crown className="w-3 h-3 mr-1" />
                         {userProfile?.subscription_plan || 'free'}
@@ -272,26 +309,41 @@ export default function Admin() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {scans.slice(0, 5).map((scan) =>
-            <div key={scan.id} className="flex items-center justify-between">
+            {scans.slice(0, 5).map((scan) => (
+              <div key={scan.id} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center">
                     <BarChart3 className="w-4 h-4 text-zinc-400" />
                   </div>
                   <div>
                     <p className="text-sm text-white">
-                      A scan was completed.
+                      A scan was {scan.status === 'failed' ? 'failed' : 'completed'}.
                     </p>
                     <p className="text-xs text-zinc-500">
-                      Found {scan.ghost_followers_found} ghost followers.
+                      {scan.status === 'failed' ?
+                        `Error: ${scan.last_error}` :
+                        `Found ${scan.ghost_count || 0} ghost followers.`
+                      }
                     </p>
                   </div>
                 </div>
-                <div className="text-xs text-zinc-400">
-                  {format(new Date(scan.created_date), 'h:mm a')}
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-zinc-400">
+                    {format(new Date(scan.created_date), 'h:mm a')}
+                  </div>
+                  {scan.status === 'failed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => retryFailedScan(scan.id)}
+                      className="border-yellow-600 text-yellow-400 hover:bg-yellow-950"
+                    >
+                      Retry
+                    </Button>
+                  )}
                 </div>
               </div>
-            )}
+            ))}
           </div>
         </CardContent>
       </Card>

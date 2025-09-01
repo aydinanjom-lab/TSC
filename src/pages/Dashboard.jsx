@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { User } from "@/api/entities";
 import { UserProfile } from "@/api/entities";
 import { ScanResult } from "@/api/entities";
@@ -24,21 +23,36 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { format } from "date-fns";
 
+const POLL_INTERVAL = 15000; // 15 seconds
+const ACTIVE_SCAN_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [latestScan, setLatestScan] = useState(null);
+  const [latestCompletedScan, setLatestCompletedScan] = useState(null);
+  const [activeScan, setActiveScan] = useState(null);
   const [recentScans, setRecentScans] = useState([]);
-  const [isScanning, setIsScanning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
-  const loadDashboardData = useCallback(async () => {
-    setIsLoading(true);
+  // Refs for cleanup
+  const pollIntervalRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Memoized data fetching function
+  const loadDashboardData = useCallback(async (signal) => {
+    setError(null);
+    
     try {
       const currentUser = await User.me();
+      if (signal?.aborted) return;
+      
       setUser(currentUser);
       
       const profiles = await UserProfile.filter({ created_by: currentUser.email });
+      if (signal?.aborted) return;
+      
       let userProfile = profiles[0];
       
       if (!userProfile) {
@@ -50,34 +64,129 @@ export default function Dashboard() {
       }
       setProfile(userProfile);
       
-      // Get the most recent scan result
-      const scans = await ScanResult.filter({ user_profile_id: userProfile.id }, "-created_date", 10);
-      setRecentScans(scans || []);
-      if (scans && scans.length > 0) {
-        setLatestScan(scans[0]);
-      }
+      // Get recent scans for display
+      const allScans = await ScanResult.filter({ user_profile_id: userProfile.id }, "-created_date", 10);
+      if (signal?.aborted) return;
+      
+      setRecentScans(allScans || []);
+      
+      // Find latest COMPLETED scan for dashboard stats
+      const completedScans = (allScans || []).filter(scan => scan.status === 'complete');
+      setLatestCompletedScan(completedScans.length > 0 ? completedScans[0] : null);
+      
+      // Find active scan (queued/running AND within last 2 minutes)
+      const now = new Date();
+      const activeScans = (allScans || []).filter(scan => {
+        if (scan.status !== 'queued' && scan.status !== 'running') return false;
+        
+        const updatedAt = new Date(scan.updated_date);
+        const timeSinceUpdate = now.getTime() - updatedAt.getTime();
+        
+        return timeSinceUpdate <= ACTIVE_SCAN_TIMEOUT;
+      });
+      
+      setActiveScan(activeScans.length > 0 ? activeScans[0] : null);
       
     } catch (error) {
+      if (signal?.aborted) return;
       console.error("Error loading dashboard:", error);
+      setError(error.message || "Failed to load dashboard data");
     }
-    setIsLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadDashboardData();
+  // Manual refresh function
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      await loadDashboardData(abortControllerRef.current.signal);
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [loadDashboardData]);
 
-  // Auto-refresh if there are running scans
+  // Initial load
   useEffect(() => {
-    const hasRunningScans = recentScans.some(scan => 
-      scan.status === 'queued' || scan.status === 'running'
-    );
+    setIsLoading(true);
     
-    if (hasRunningScans) {
-      const interval = setInterval(loadDashboardData, 5000);
-      return () => clearInterval(interval);
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
-  }, [recentScans, loadDashboardData]);
+    
+    // Create new abort controller
+    abortControllerRef.current = new AbortController();
+    
+    loadDashboardData(abortControllerRef.current.signal).finally(() => {
+      setIsLoading(false);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [loadDashboardData]);
+
+  // Conditional polling effect
+  useEffect(() => {
+    // Clear any existing interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+
+    // Only poll if there's an active scan and tab is visible
+    if (activeScan && !document.hidden) {
+      pollIntervalRef.current = setInterval(() => {
+        // Only poll if tab is still visible
+        if (!document.hidden) {
+          handleManualRefresh();
+        }
+      }, POLL_INTERVAL);
+    }
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [activeScan, handleManualRefresh]);
+
+  // Handle visibility changes (pause polling when tab hidden)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Pause polling when tab hidden
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      } else {
+        // Resume polling when tab visible (if active scan exists)
+        if (activeScan && !pollIntervalRef.current) {
+          pollIntervalRef.current = setInterval(() => {
+            if (!document.hidden) {
+              handleManualRefresh();
+            }
+          }, POLL_INTERVAL);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [activeScan, handleManualRefresh]);
 
   const handleConnectInstagram = () => {
     alert("Instagram OAuth integration would be implemented here. For demo purposes, we'll simulate a connected account.");
@@ -91,7 +200,7 @@ export default function Dashboard() {
         engagement_rate: 3.2,
         last_scan_date: new Date().toISOString()
       });
-      loadDashboardData();
+      handleManualRefresh();
     }, 1000);
   };
 
@@ -106,8 +215,27 @@ export default function Dashboard() {
     );
   }
 
-  const engagementColor = profile?.engagement_rate > 4 ? "text-emerald-400" : 
-                         profile?.engagement_rate > 2 ? "text-yellow-400" : "text-red-400";
+  if (error) {
+    return (
+      <div className="p-6 md:p-8 space-y-8">
+        <Card className="bg-zinc-900 border-red-800">
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Error Loading Dashboard</h3>
+            <p className="text-zinc-300 mb-6">{error}</p>
+            <Button 
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 md:p-8 space-y-8">
@@ -138,12 +266,25 @@ export default function Dashboard() {
           </p>
         </div>
         
-        <Link to={createPageUrl("Upload")}>
-          <Button className="chrome-button text-gray-800">
-            <Zap className="w-4 h-4 mr-2" />
-            Start New Scan
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            variant="outline"
+            size="sm"
+            className="border-zinc-600 text-zinc-300 hover:text-white"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
           </Button>
-        </Link>
+          
+          <Link to={createPageUrl("Upload")}>
+            <Button className="chrome-button text-gray-800">
+              <Zap className="w-4 h-4 mr-2" />
+              Start New Scan
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {!profile?.instagram_connected && (
@@ -155,6 +296,32 @@ export default function Dashboard() {
         </Alert>
       )}
 
+      {/* Active Scan Banner - only show if there's a recent active scan */}
+      {activeScan && (
+        <Card className="bg-gradient-to-r from-blue-950 to-purple-950 border-blue-800">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Analyzing Your Followers</h3>
+              <Badge className="bg-blue-600 text-white">In Progress</Badge>
+            </div>
+            <Progress value={75} className="mb-2" />
+            <p className="text-sm text-zinc-300">
+              Processing your Instagram data export... 
+              {activeScan.updated_date && (
+                <span className="ml-2 text-zinc-400">
+                  Last update: {format(new Date(activeScan.updated_date), 'h:mm a')}
+                </span>
+              )}
+            </p>
+            <Link to={createPageUrl(`Scan/${activeScan.id}`)}>
+              <Button variant="outline" size="sm" className="border-blue-400 text-blue-300 mt-3">
+                View Progress
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="bg-zinc-900 border-zinc-800">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -163,9 +330,11 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">
-              {latestScan?.total_followers?.toLocaleString() || "0"}
+              {latestCompletedScan?.total_followers?.toLocaleString() || "0"}
             </div>
-            <p className="text-xs text-zinc-500 mt-1">From latest scan</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {latestCompletedScan ? "From latest completed scan" : "No completed scans yet"}
+            </p>
           </CardContent>
         </Card>
 
@@ -176,11 +345,11 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-400">
-              {latestScan?.ghost_count?.toLocaleString() || "0"}
+              {latestCompletedScan?.ghost_count?.toLocaleString() || "0"}
             </div>
             <p className="text-xs text-zinc-500 mt-1">
-              {latestScan?.total_followers && latestScan?.ghost_count ? 
-                `${((latestScan.ghost_count / latestScan.total_followers) * 100).toFixed(1)}% of total` : 
+              {latestCompletedScan?.total_followers && latestCompletedScan?.ghost_count ? 
+                `${((latestCompletedScan.ghost_count / latestCompletedScan.total_followers) * 100).toFixed(1)}% of total` : 
                 "Upload data to scan"
               }
             </p>
@@ -194,8 +363,8 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-400">
-              {latestScan?.total_followers && latestScan?.ghost_count ? 
-                (latestScan.total_followers - latestScan.ghost_count).toLocaleString() : 
+              {latestCompletedScan?.total_followers && latestCompletedScan?.ghost_count ? 
+                (latestCompletedScan.total_followers - latestCompletedScan.ghost_count).toLocaleString() : 
                 "0"
               }
             </div>
@@ -205,31 +374,17 @@ export default function Dashboard() {
 
         <Card className="bg-zinc-900 border-zinc-800">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm font-medium text-zinc-400">Last Scan</CardTitle>
+            <CardTitle className="text-sm font-medium text-zinc-400">Last Completed Scan</CardTitle>
             <Clock className="h-4 w-4 text-zinc-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-white">
-              {latestScan?.created_date ? format(new Date(latestScan.created_date), "MMM d") : "Never"}
+              {latestCompletedScan?.created_date ? format(new Date(latestCompletedScan.created_date), "MMM d") : "Never"}
             </div>
-            <p className="text-xs text-zinc-500 mt-1">Most recent analysis</p>
+            <p className="text-xs text-zinc-500 mt-1">Most recent completed analysis</p>
           </CardContent>
         </Card>
       </div>
-
-      {/* Check for running scans */}
-      {recentScans.some(scan => scan.status === 'queued' || scan.status === 'running') && (
-        <Card className="bg-gradient-to-r from-blue-950 to-purple-950 border-blue-800">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Analyzing Your Followers</h3>
-              <Badge className="bg-blue-600 text-white">In Progress</Badge>
-            </div>
-            <Progress value={75} className="mb-2" />
-            <p className="text-sm text-zinc-300">Processing your Instagram data export...</p>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="bg-zinc-900 border-zinc-800">
@@ -241,8 +396,8 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-zinc-400 mb-4">
-              {latestScan?.ghost_count ? 
-                `You have ${latestScan.ghost_count} ghost followers that aren't engaging with your content.` :
+              {latestCompletedScan?.ghost_count ? 
+                `You have ${latestCompletedScan.ghost_count} ghost followers that aren't engaging with your content.` :
                 "Upload your Instagram data to identify ghost followers."
               }
             </p>
@@ -308,9 +463,16 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                  <Badge variant="outline" className="border-zinc-600 text-zinc-300 capitalize">
-                    {scan.status}
-                  </Badge>
+                  <div className="flex items-center gap-3">
+                    <Badge variant="outline" className="border-zinc-600 text-zinc-300 capitalize">
+                      {scan.status}
+                    </Badge>
+                    <Link to={createPageUrl(`Scan/${scan.id}`)}>
+                      <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
+                        View
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { User } from "@/api/entities";
 import { UserProfile } from "@/api/entities";
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Crown, 
   CreditCard, 
@@ -16,7 +18,10 @@ import {
   Zap,
   Users,
   Target,
-  Settings
+  Settings,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -50,35 +55,83 @@ const PLAN_FEATURES = {
   }
 };
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+// Helper function to retry API calls
+const retryApiCall = async (apiCall, maxRetries = MAX_RETRIES) => {
+  let lastError;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await apiCall();
+    } catch (error) {
+      lastError = error;
+      console.warn(`API call attempt ${attempt + 1} failed:`, error.message);
+      
+      // Don't retry on authentication errors
+      if (error.message && error.message.toLowerCase().includes('unauthorized')) {
+        throw error;
+      }
+      
+      // Wait before retrying (except on last attempt)
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)));
+      }
+    }
+  }
+  
+  throw lastError;
+};
+
 export default function BillingPage() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const loadBillingData = async () => {
+    setError(null);
+    setIsLoading(true);
+    
+    try {
+      const currentUser = await retryApiCall(() => User.me());
+      setUser(currentUser);
+      
+      const profiles = await retryApiCall(() => UserProfile.filter({ created_by: currentUser.email }));
+      let userProfile = profiles[0];
+      
+      if (!userProfile) {
+        userProfile = await retryApiCall(() => UserProfile.create({
+          subscription_plan: "free",
+          subscription_status: "expired"
+        }));
+      }
+      setProfile(userProfile);
+      setRetryCount(0); // Reset retry count on success
+    } catch (error) {
+      console.error("Error loading billing data:", error);
+      setError({
+        message: error.message || "Failed to load billing data",
+        isNetworkError: error.message && (
+          error.message.toLowerCase().includes('network') ||
+          error.message.toLowerCase().includes('fetch') ||
+          error.message.toLowerCase().includes('connection')
+        )
+      });
+    }
+    setIsLoading(false);
+  };
 
   useEffect(() => {
     loadBillingData();
   }, []);
 
-  const loadBillingData = async () => {
-    try {
-      const currentUser = await User.me();
-      setUser(currentUser);
-      
-      const profiles = await UserProfile.filter({ created_by: currentUser.email });
-      let userProfile = profiles[0];
-      
-      if (!userProfile) {
-        userProfile = await UserProfile.create({
-          subscription_plan: "free",
-          subscription_status: "expired"
-        });
-      }
-      setProfile(userProfile);
-    } catch (error) {
-      console.error("Error loading billing data:", error);
-    }
-    setIsLoading(false);
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    loadBillingData();
   };
 
   const handleStripeCheckout = async (planType) => {
@@ -144,6 +197,66 @@ export default function BillingPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zinc-400 mx-auto mb-4"></div>
           <p className="text-zinc-400">Loading billing information...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 md:p-8 space-y-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">Billing & Subscription</h1>
+            <p className="text-zinc-400">Manage your subscription and view usage</p>
+          </div>
+        </div>
+
+        <Card className="bg-zinc-900 border-red-800">
+          <CardContent className="p-8 text-center">
+            {error.isNetworkError ? (
+              <WifiOff className="w-16 h-16 text-red-400 mx-auto mb-4" />
+            ) : (
+              <AlertTriangle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+            )}
+            <h3 className="text-xl font-semibold text-white mb-2">
+              {error.isNetworkError ? 'Connection Problem' : 'Loading Error'}
+            </h3>
+            <p className="text-zinc-300 mb-6">
+              {error.isNetworkError ? 
+                'Unable to connect to the server. Please check your internet connection and try again.' :
+                error.message
+              }
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Button 
+                onClick={handleRetry}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Try Again {retryCount > 0 && `(${retryCount})`}
+              </Button>
+              <Link to={createPageUrl("Dashboard")}>
+                <Button variant="outline" className="border-zinc-600">
+                  Go to Dashboard
+                </Button>
+              </Link>
+            </div>
+            {error.isNetworkError && (
+              <Alert className="mt-6 border-blue-500 bg-blue-950/50 text-left">
+                <Wifi className="h-4 w-4" />
+                <AlertDescription className="text-blue-200">
+                  <strong>Troubleshooting tips:</strong>
+                  <ul className="list-disc list-inside mt-2 space-y-1">
+                    <li>Check your internet connection</li>
+                    <li>Try refreshing the page</li>
+                    <li>Clear your browser cache</li>
+                    <li>Try again in a few minutes</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -381,7 +494,7 @@ export default function BillingPage() {
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-white mb-2">Do unused scans roll over?</h4>
+            <h4 className="font-semibold text-white text-sm mb-2">Do unused scans roll over?</h4>
             <p className="text-zinc-400 text-sm">
               No, scan allowances reset each billing period and don't carry over to the next month.
             </p>

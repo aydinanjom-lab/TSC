@@ -22,7 +22,7 @@ import { format } from "date-fns";
 // Note: This function is no longer called by retryFailedScan due to explicit implementation within it.
 // It is kept for historical context or if other parts of a larger application might use it.
 async function startProcessUpload(scanId) {
-  const r = await fetch("/api/process-upload", {
+  const r = await fetch("/api/processUploadAPI", { // Changed endpoint path here
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scanId })
@@ -100,22 +100,61 @@ export default function Admin() {
     if (!confirm('Retry this failed scan?')) return;
 
     try {
-      const r = await fetch("/api/process-upload", {
+      const r = await fetch("/api/processUploadAPI", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scanId })
       });
-      const j = await r.json();
 
-      if (j.ok) {
-        alert('Scan retry initiated successfully');
-        loadAdminData(); // Refresh data
-      } else {
-        alert(`Failed to retry scan: ${j.error} (${j.step || 'unknown'})`);
+      // Check HTTP response status first for network/server errors
+      if (!r.ok) {
+        let errorMessage = `HTTP Error ${r.status}: ${r.statusText || 'Unknown error'}`;
+        try {
+          const errorBody = await r.json();
+          if (errorBody && errorBody.error) {
+            errorMessage = errorBody.error;
+          } else if (errorBody && errorBody.message) {
+            errorMessage = errorBody.message;
+          } else if (Object.keys(errorBody).length > 0) {
+            errorMessage = JSON.stringify(errorBody);
+          }
+        } catch (e) {
+          console.warn("Failed to parse error response as JSON:", e);
+        }
+        throw new Error(errorMessage);
       }
+
+      const j = await r.json();
+      if (!j.ok) {
+        throw new Error(`${j.error} (${j.step || 'unknown'})`);
+      }
+
+      alert('Scan retry initiated successfully');
+      loadAdminData();
     } catch (error) {
       console.error('Retry scan error:', error);
       alert(`Error retrying scan: ${error.message}`);
+    }
+  };
+
+  const cleanupStaleScans = async () => {
+    if (!confirm('Clean up all stale scans (queued/running for >2 hours)?')) return;
+
+    try {
+      const r = await fetch("/api/cleanupStalScans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const j = await r.json();
+      
+      if (j.ok) {
+        alert(`${j.message}${j.errors ? ` (with ${j.errors.length} errors)` : ''}`);
+        loadAdminData();
+      } else {
+        alert(`Failed to cleanup: ${j.error}`);
+      }
+    } catch (error) {
+      alert(`Error during cleanup: ${error.message}`);
     }
   };
 
@@ -164,10 +203,19 @@ export default function Admin() {
           <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
           <p className="text-zinc-400">Monitor users, subscriptions, and system activity</p>
         </div>
-        <Badge className="bg-red-600 text-white">
-          <Shield className="w-4 h-4 mr-2" />
-          Admin Access
-        </Badge>
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={cleanupStaleScans}
+            variant="outline"
+            className="border-yellow-600 text-yellow-400 hover:bg-yellow-950"
+          >
+            Cleanup Stale Scans
+          </Button>
+          <Badge className="bg-red-600 text-white">
+            <Shield className="w-4 h-4 mr-2" />
+            Admin Access
+          </Badge>
+        </div>
       </div>
 
       {/* Stats Cards */}

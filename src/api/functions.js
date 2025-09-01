@@ -3,5 +3,7 @@ import { base44 } from './base44Client';
 
 export const processUpload = base44.functions.processUpload;
 
-export const api-process-upload = base44.functions.api-process-upload;
+export const cleanupStalScans = base44.functions.cleanupStalScans;
+
+export const process-upload = base44.functions.process-upload;
 

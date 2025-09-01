@@ -26,16 +26,61 @@ const PLAN_LIMITS = {
   pro: { scans: 4, followers: 50000 }
 };
 
-// Helper function to call the processing endpoint
+// Helper function to call the processing endpoint with better error handling
 async function startProcessUpload(scanId) {
-  const r = await fetch("/api/process-upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scanId })
-  });
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || "process-upload-failed");
-  return j;
+  try {
+    const r = await fetch("/api/process-upload", { // Changed endpoint to /api/process-upload
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin", // Added credentials option
+      body: JSON.stringify({ scanId })
+    });
+
+    // Log response details for debugging
+    console.log('startProcessUpload response status:', r.status);
+    console.log('startProcessUpload response headers:', r.headers);
+
+    if (!r.ok) {
+      let errorData;
+      try {
+        errorData = await r.json(); // Attempt to parse response as JSON
+      } catch (e) {
+        // If not JSON, or empty, get it as text
+        errorData = await r.text();
+      }
+
+      // Construct a more informative error message
+      const errorMessage = (errorData && typeof errorData === 'object' && errorData.error)
+        ? errorData.error
+        : (typeof errorData === 'string' && errorData.length > 0)
+          ? errorData // Use text if it's not JSON but has content
+          : r.statusText || 'Unknown server error';
+
+      throw new Error(`HTTP ${r.status}: ${errorMessage}`);
+    }
+
+    const j = await r.json();
+    console.log('startProcessUpload response body:', j);
+
+    if (!j.ok) {
+      const errorMsg = j.error || 'Unknown error occurred';
+      const step = j.step ? ` (${j.step})` : '';
+      throw new Error(`${errorMsg}${step}`);
+    }
+
+    return j;
+  } catch (fetchError) {
+    console.error('startProcessUpload fetch error:', fetchError);
+
+    // Handle different types of errors
+    if (fetchError.message.includes('Failed to fetch')) {
+      throw new Error('Network error - please check your connection and try again');
+    } else if (fetchError.message.includes('JSON')) {
+      throw new Error('Server returned invalid response - please try again');
+    } else {
+      throw fetchError; // Re-throw the original error
+    }
+  }
 }
 
 export default function UploadPage() {
@@ -135,15 +180,15 @@ export default function UploadPage() {
 
       // Start processing using the HTTP endpoint
       try {
-        await startProcessUpload(newScan.id);
-        console.log('Processing started successfully');
+        const result = await startProcessUpload(newScan.id);
+        console.log('Processing started successfully:', result);
+        setUploadProgress(100);
       } catch (apiError) {
         console.error("Failed to start processing:", apiError);
-        // Show error but don't crash - user can still see scan details
+        // Show error but don't crash - user can still see scan details and retry if needed
         setError(`Failed to start processing: ${apiError.message}. You can still view scan details and retry if needed.`);
+        setUploadProgress(100); // Still complete the upload UI
       }
-
-      setUploadProgress(100);
 
       // Increment scan count
       await UserProfile.update(userProfile.id, {

@@ -80,7 +80,7 @@ export default function ScanPage() {
     return () => {
       isPolling = false;
     };
-  }, [fetchData]); // Removed window.location.pathname from dependency array
+  }, [fetchData]);
 
   const handleCopyError = (errorText) => {
     navigator.clipboard.writeText(errorText).then(
@@ -184,9 +184,10 @@ export default function ScanPage() {
           if (!confirm('Retry processing this scan?')) return;
           
           try {
-            const r = await fetch("/api/process-upload", {
+            const r = await fetch("/api/process-upload", { // Changed endpoint
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              credentials: "same-origin", // Added credentials option
               body: JSON.stringify({ scanId: scanResult.id })
             });
             const j = await r.json();

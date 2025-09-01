@@ -344,7 +344,7 @@ export default function AdminUserDetailsPage() {
                       <Badge variant="outline" className="border-zinc-600 text-zinc-300 capitalize">
                         {scan.status}
                       </Badge>
-                      <Link to={createPageUrl(`Scan/${scan.id}`)}>
+                      <Link to={`/scan/${scan.id}`}>
                         <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
                           View
                         </Button>

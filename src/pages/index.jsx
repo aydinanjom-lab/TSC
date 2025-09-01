@@ -55,12 +55,16 @@ function _getCurrentPage(url) {
         url = url.slice(0, -1);
     }
     let urlLastPart = url.split('/').pop();
-    if (urlLastPart.includes('?')) {
-        urlLastPart = urlLastPart.split('?')[0];
-    }
+  if (urlLastPart.includes('?')) {
+      urlLastPart = urlLastPart.split('?')[0];
+  }
 
-    const pageName = Object.keys(PAGES).find(page => page.toLowerCase() === urlLastPart.toLowerCase());
-    return pageName || Object.keys(PAGES)[0];
+  if (url.toLowerCase().startsWith('/scan/')) {
+      return 'Scan';
+  }
+
+  const pageName = Object.keys(PAGES).find(page => page.toLowerCase() === urlLastPart.toLowerCase());
+  return pageName || Object.keys(PAGES)[0];
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -91,7 +95,7 @@ function PagesContent() {
                 
                 <Route path="/Upload" element={<Upload />} />
                 
-                <Route path="/Scan" element={<Scan />} />
+                  <Route path="/scan/:id" element={<Scan />} />
                 
                 <Route path="/AdminUserDetails" element={<AdminUserDetails />} />
                 

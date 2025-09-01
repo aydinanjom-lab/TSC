@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { User } from "@/api/entities";
 import { UserProfile } from "@/api/entities";
 import { ScanResult } from "@/api/entities";
@@ -17,9 +17,6 @@ import {
   Crown
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
-import UpgradeModal from "../components/UpgradeModal";
-
 const PLAN_LIMITS = {
   free: { scans: 0, followers: 1000 },
   starter: { scans: 1, followers: 10000 },
@@ -42,12 +39,12 @@ async function startProcessUpload(scanId) {
 
     if (!r.ok) {
       let errorData;
-      try {
-        errorData = await r.json(); // Attempt to parse response as JSON
-      } catch (e) {
-        // If not JSON, or empty, get it as text
-        errorData = await r.text();
-      }
+        try {
+          errorData = await r.json(); // Attempt to parse response as JSON
+        } catch {
+          // If not JSON, or empty, get it as text
+          errorData = await r.text();
+        }
 
       // Construct a more informative error message
       const errorMessage = (errorData && typeof errorData === 'object' && errorData.error)
@@ -89,11 +86,8 @@ export default function UploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [error, setError] = useState(null);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [upgradeType, setUpgradeType] = useState(null);
   const [profile, setProfile] = useState(null);
-
-  const checkPlanLimits = useCallback(async (file) => {
+  const fetchUserProfile = useCallback(async () => {
     try {
       const currentUser = await User.me();
       const profiles = await UserProfile.filter({ created_by: currentUser.email });
@@ -104,30 +98,10 @@ export default function UploadPage() {
 
       const userProfile = profiles[0];
       setProfile(userProfile);
-
-      const currentPlan = userProfile.subscription_plan || 'free';
-      const limits = PLAN_LIMITS[currentPlan];
-
-      // Check scan limit
-      if (limits.scans > 0 && (userProfile.scans_this_month || 0) >= limits.scans) {
-        setUpgradeType('scans');
-        setShowUpgradeModal(true);
-        return false;
-      }
-
-      // For follower count, we'd need to parse the file first
-      // For now, we'll do a rough estimate based on file size
-      const estimatedFollowers = Math.floor(file.size / 100); // Rough estimate
-      if (estimatedFollowers > limits.followers) {
-        setUpgradeType('followers');
-        setShowUpgradeModal(true);
-        return false;
-      }
-
       return userProfile;
     } catch (error) {
       setError(error.message);
-      return false;
+      return null;
     }
   }, []);
 
@@ -146,11 +120,8 @@ export default function UploadPage() {
       return;
     }
 
-    // Check plan limits
-    const userProfile = await checkPlanLimits(file);
-    if (!userProfile) {
-      return;
-    }
+    const userProfile = await fetchUserProfile();
+    if (!userProfile) return;
 
     setIsUploading(true);
     setUploadProgress(0);
@@ -205,7 +176,7 @@ export default function UploadPage() {
       setIsUploading(false);
       setUploadProgress(0);
     }
-  }, [checkPlanLimits]);
+  }, [fetchUserProfile]);
 
   const handleDrag = useCallback((e) => {
     e.preventDefault();
@@ -233,12 +204,12 @@ export default function UploadPage() {
     }
   };
 
-  return (
-    <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-8">
-      <style jsx>{`
-        .chrome-button {
-          background: linear-gradient(135deg, #f5f7fa 0%, #d9dde1 20%, #b4bcc4 50%, #d9dde1 80%, #f5f7fa 100%);
-          color: #1f2937;
+    return (
+      <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-8">
+        <style>{`
+          .chrome-button {
+            background: linear-gradient(135deg, #f5f7fa 0%, #d9dde1 20%, #b4bcc4 50%, #d9dde1 80%, #f5f7fa 100%);
+            color: #1f2937;
           font-weight: 600;
           text-shadow: 0 1px 2px rgba(255,255,255,0.8);
           border: none;
@@ -271,7 +242,7 @@ export default function UploadPage() {
             </p>
             <div className="flex gap-4 justify-center">
               {/* Ensure button links to the correct URL with the ID from the state */}
-              <Link to={createPageUrl(`Scan/${uploadResult.id}`)}>
+              <Link to={`/scan/${uploadResult.id}`}>
                 <Button className="chrome-button">
                   <Clock className="w-4 h-4 mr-2" />
                   View Scan Details
@@ -400,7 +371,7 @@ export default function UploadPage() {
           </div>
           <div className="space-y-2">
             <h4 className="font-semibold text-white">Step 2: Select Data Type</h4>
-            <p>Choose "Followers and Following" and select JSON format</p>
+              <p>Choose &quot;Followers and Following&quot; and select JSON format</p>
           </div>
           <div className="space-y-2">
             <h4 className="font-semibold text-white">Step 3: Wait for Email</h4>
@@ -413,12 +384,6 @@ export default function UploadPage() {
         </CardContent>
       </Card>
 
-      <UpgradeModal
-        isOpen={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        limitType={upgradeType}
-        currentPlan={profile?.subscription_plan}
-      />
     </div>
   );
 }

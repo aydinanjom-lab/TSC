@@ -20,7 +20,6 @@ import {
   CheckCircle
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
 import { format } from "date-fns";
 
 const POLL_INTERVAL = 15000; // 15 seconds
@@ -313,7 +312,7 @@ export default function Dashboard() {
                 </span>
               )}
             </p>
-            <Link to={createPageUrl(`Scan/${activeScan.id}`)}>
+            <Link to={`/scan/${activeScan.id}`}>
               <Button variant="outline" size="sm" className="border-blue-400 text-blue-300 mt-3">
                 View Progress
               </Button>
@@ -467,7 +466,7 @@ export default function Dashboard() {
                     <Badge variant="outline" className="border-zinc-600 text-zinc-300 capitalize">
                       {scan.status}
                     </Badge>
-                    <Link to={createPageUrl(`Scan/${scan.id}`)}>
+                    <Link to={`/scan/${scan.id}`}>
                       <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
                         View
                       </Button>

@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ScanResult } from "@/api/entities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   RefreshCw,
@@ -22,64 +22,40 @@ import { format } from "date-fns";
 import LoadingState from "../components/LoadingState";
 
 export default function ScanPage() {
-  const [scanId, setScanId] = useState(null);
+  const { id: scanId } = useParams();
   const [fetchState, setFetchState] = useState("loading");
   const [scanResult, setScanResult] = useState(null);
   const [error, setError] = useState(null);
+  const pollRef = useRef(null);
 
-  const fetchData = useCallback(async (id) => {
-    if (!id) return;
-    try {
-      const results = await ScanResult.filter({ id });
-      if (!results || results.length === 0) {
-        throw new Error(`Scan with ID ${id} not found.`);
-      }
-      const currentScan = results[0];
-      setScanResult(currentScan);
-      setFetchState("success");
-
-      // Stop polling if the scan is complete or failed
-      if (currentScan.status === 'complete' || currentScan.status === 'failed') {
-        return false; // Signal to stop polling
-      }
-      return true; // Signal to continue polling
-    } catch (e) {
-      setError({ message: e.message });
-      setFetchState("error");
-      return false; // Stop polling on error
-    }
-  }, []);
-
-  useEffect(() => {
-    const pathParts = window.location.pathname.split("/");
-    const scanIndex = pathParts.findIndex((part) => part.toLowerCase() === "scan");
-    const resolvedScanId = scanIndex !== -1 && scanIndex + 1 < pathParts.length ? pathParts[scanIndex + 1] : null;
-
-    if (!resolvedScanId) {
+  const fetchData = useCallback(async () => {
+    if (!scanId) {
       setError({ message: "No scan ID provided in the URL." });
       setFetchState("error");
       return;
     }
-
-    setScanId(resolvedScanId);
-    setFetchState("loading");
-    
-    let isPolling = true;
-    const poll = async () => {
-      if (!isPolling) return;
-      const shouldContinue = await fetchData(resolvedScanId);
-      if (shouldContinue) {
-        setTimeout(poll, 5000);
-      } else {
-        isPolling = false; // Ensure polling stops if fetchData signals not to continue
+    try {
+      const results = await ScanResult.filter({ id: scanId });
+      if (!results || results.length === 0) {
+        throw new Error(`Scan with ID ${scanId} not found.`);
       }
-    };
-    
-    poll();
+      const currentScan = results[0];
+      setScanResult(currentScan);
+      setFetchState("success");
+      if (currentScan.status === 'complete' || currentScan.status === 'failed') {
+        clearInterval(pollRef.current);
+      }
+    } catch (e) {
+      setError({ message: e.message });
+      setFetchState("error");
+      clearInterval(pollRef.current);
+    }
+  }, [scanId]);
 
-    return () => {
-      isPolling = false;
-    };
+  useEffect(() => {
+    fetchData();
+    pollRef.current = setInterval(fetchData, 5000);
+    return () => clearInterval(pollRef.current);
   }, [fetchData]);
 
   const handleCopyError = (errorText) => {
@@ -182,20 +158,22 @@ export default function ScanPage() {
         
         const handleRetryProcessing = async () => {
           if (!confirm('Retry processing this scan?')) return;
-          
+
           try {
-            const r = await fetch("/api/process-upload", { // Changed endpoint
+            const r = await fetch("/api/process-upload", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              credentials: "same-origin", // Added credentials option
-              body: JSON.stringify({ scanId: scanResult.id })
+              credentials: "same-origin",
+              body: JSON.stringify({ scanId })
             });
             const j = await r.json();
-            
+
             if (j.ok) {
               alert('Processing retry started successfully');
-              // Refresh the page to show updated status
-              window.location.reload();
+              if (!pollRef.current) {
+                pollRef.current = setInterval(fetchData, 5000);
+              }
+              fetchData();
             } else {
               alert(`Failed to retry processing: ${j.error} (${j.step || 'unknown'})`);
             }

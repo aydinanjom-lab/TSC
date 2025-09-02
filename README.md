@@ -1,20 +1,24 @@
-# Base44 App
+# The Social Cleanup
 
+A Vite + React front-end paired with a tiny Express API.
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
+## Development
 
-## Running the app
+Install dependencies and start the Vite dev server:
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Building the app
+Start the API server in another terminal:
+
+```bash
+npm start
+```
+
+## Build
 
 ```bash
 npm run build
 ```
-
-For more information and support, please contact Base44 support at app@base44.com.

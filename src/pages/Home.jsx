@@ -16,7 +16,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
 // Replace this with your actual logo URL from App Profile
-const LOGO_URL = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/52424afaf_ChatGPTImageAug252025at10_54_47AM.png";
+const LOGO_URL = "/logo.svg";
 
 // Smooth scrolling for anchor links
 const smoothScrollTo = (id) => {

@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 // Replace this with your actual logo URL from App Profile
-const LOGO_URL = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/52424afaf_ChatGPTImageAug252025at10_54_47AM.png"; // TODO: Update this path
+const LOGO_URL = "/logo.svg";
 
 export default function Layout({ children, currentPageName }) {
   const [user, setUser] = useState(null);

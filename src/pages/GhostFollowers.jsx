@@ -433,7 +433,7 @@ function GhostFollowersPage() {
             <p className="text-zinc-300 mb-4">
               We're analyzing your Instagram data export to identify ghost followers. This usually takes 2-5 minutes.
             </p>
-            <Link to={createPageUrl(`Scan/${latestScan.id}`)}>
+            <Link to={`/scan/${latestScan.id}`}>
               <Button variant="outline" className="border-blue-400 text-blue-300">
                 View Scan Progress
               </Button>

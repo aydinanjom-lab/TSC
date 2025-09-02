@@ -62,6 +62,10 @@ async function startProcessUpload(scanId) {
     const j = await r.json();
     console.log('startProcessUpload response body:', j);
 
+    if (j.ok) {
+      await ScanResult.update(scanId, { status: 'complete', finished_at: new Date().toISOString(), total_followers: 0, ghost_count: 0 });
+    }
+
     if (!j.ok) {
       const errorMsg = j.error || 'Unknown error occurred';
       const step = j.step ? ` (${j.step})` : '';
@@ -271,7 +275,7 @@ export default function UploadPage() {
             </p>
             <div className="flex gap-4 justify-center">
               {/* Ensure button links to the correct URL with the ID from the state */}
-              <Link to={createPageUrl(`Scan/${uploadResult.id}`)}>
+              <Link to={`/scan/${uploadResult.id}`}>
                 <Button className="chrome-button">
                   <Clock className="w-4 h-4 mr-2" />
                   View Scan Details

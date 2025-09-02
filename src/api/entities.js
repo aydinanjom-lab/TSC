@@ -1,13 +1,10 @@
 import { base44 } from './base44Client';
 
+// Explicitly expose individual entities used throughout the app
+const { GhostFollower, UserProfile, ScanResult } = base44.entities;
 
-export const GhostFollower = base44.entities.GhostFollower;
+// Authentication SDK
+const { auth: User } = base44;
 
-export const UserProfile = base44.entities.UserProfile;
+export { GhostFollower, UserProfile, ScanResult, User };
 
-export const ScanResult = base44.entities.ScanResult;
-
-
-
-// auth sdk:
-export const User = base44.auth;

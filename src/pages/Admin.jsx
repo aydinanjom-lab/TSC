@@ -22,7 +22,7 @@ import { format } from "date-fns";
 // Note: This function is no longer called by retryFailedScan due to explicit implementation within it.
 // It is kept for historical context or if other parts of a larger application might use it.
 async function startProcessUpload(scanId) {
-  const r = await fetch("/api/processUploadAPI", { // Changed endpoint path here
+  const r = await fetch("/api/process-upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scanId })
@@ -100,7 +100,7 @@ export default function Admin() {
     if (!confirm('Retry this failed scan?')) return;
 
     try {
-      const r = await fetch("/api/processUploadAPI", {
+      const r = await fetch("/api/process-upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scanId })

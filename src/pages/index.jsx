@@ -22,7 +22,7 @@ import AdminUserDetails from "./AdminUserDetails";
 
 import AdminUsers from "./AdminUsers";
 
-import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
     

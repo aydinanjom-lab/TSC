@@ -1,9 +1,6 @@
 import { base44 } from './base44Client';
 
-
 export const processUpload = base44.functions.processUpload;
 
-export const cleanupStalScans = base44.functions.cleanupStalScans;
-
-export const process-upload = base44.functions.process-upload;
+export const cleanupStaleScans = base44.functions.cleanupStaleScans;
 
